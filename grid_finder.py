@@ -221,6 +221,7 @@ def main():
                         action='store_true')
     parser.add_argument('--term', help='Print the grid as colored brackets',
                         action='store_true')
+    parser.add_argument('--imwrite', help='Write a clean image of the grid')
     args = parser.parse_args()
 
     img = cv2.imread(args.file)
@@ -265,6 +266,13 @@ def main():
             lines.append(line)
         print(json.dumps(lines, indent=4))
         sys.exit(0)
+    if args.imwrite:
+        img_flat = img.copy()
+        for x, y, width, height in grid.all_cells():
+            mean_color = cv2.mean(img[x:x + width, y:y + height])[:3]
+            img_flat[x:x + width, y:y + height] = mean_color
+        cv2.imwrite(args.imwrite, img_flat)
+
     if args.verbose:
         print('First column at:', grid.x)
         print('First row at:', grid.y)
