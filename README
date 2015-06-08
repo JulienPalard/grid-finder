@@ -1,0 +1,9 @@
+$ git clone https://github.com/Itseez/opencv.git
+$ cd opencv
+$ git checkout 3.0.0-rc1
+$ cd cmake
+$ apt-get install libgstreamer-plugins-base1.0-dev libgstreamer-plugins-base0.10-dev
+$ cmake -D CMAKE_BUILD_TYPE=RELEASE -D CMAKE_INSTALL_PREFIX=/usr/local -D BUILD_opencv_java=OFF -D PYTHON_EXECUTABLE=/usr/bin/python3.4 ..
+$ cd ..
+$ make -j 4
+$ PYTHONPATH=opencv/lib/python3/ ./grid_finder.py
