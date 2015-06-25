@@ -1,3 +1,7 @@
+Goal of this project is to find a grid (chessboard) in the given image.
+
+http://docs.opencv.org/doc/tutorials/calib3d/camera_calibration_square_chess/camera_calibration_square_chess.html
+
 $ git clone https://github.com/Itseez/opencv.git
 $ cd opencv
 $ git checkout 3.0.0-rc1
@@ -7,3 +11,20 @@ $ cmake -D CMAKE_BUILD_TYPE=RELEASE -D CMAKE_INSTALL_PREFIX=/usr/local -D BUILD_
 $ cd ..
 $ make -j 4
 $ PYTHONPATH=opencv/lib/python3/ ./grid_finder.py
+
+
+Bon il faut transformer l'image en 2d vue de dessus.
+
+Pour ça, deux étapes:
+
+ - Trouver 4 points
+ - Utiliser warpPerspective pour applatir le bouzin
+
+Pour trouver les 4 points plusieurs pistes:
+ - Detecter les lignes, détecter les colonnes, faire un "et", on a les points des intersections
+   -> Cool mais ne marche que si l'image à déjà des lignes et des colonnes -> C'est pas notre cas
+ - findChessboardCorners
+   -> Pas mal, mais il faut connaître la taille du damier, ce n'est pas notre cas
+ - Detecter les lignes à coup de houghlines2
+   -> Pour ça il faut d'abord les mettre en évidence -> trying
+ - What else ?
