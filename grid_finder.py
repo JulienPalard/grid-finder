@@ -6,8 +6,9 @@ import itertools
 import numpy as np
 
 
-def show_debug(img, grid, lines, columns, edges, warped, warped_edges,
-               cdst, img_grid, img_grid_flat):
+def show_debug(img, edges, found_lines, img_target_points, warped, warped_edges, grid, lines=None,
+               columns=None,
+               interesting_lines=None, img_grid=None, img_grid_flat=None):
     from matplotlib import pyplot as plt
     plot_number = 0
 
@@ -21,42 +22,61 @@ def show_debug(img, grid, lines, columns, edges, warped, warped_edges,
     plt.imshow(edges, cmap = 'gray')
     plt.title('Edge Image')
 
-    plot_number += 1
-    plt.subplot(3, 4, plot_number)
-    plt.imshow(cdst, cmap = 'gray')
-    plt.title('Interesting lines')
+    if found_lines is not None:
+        plot_number += 1
+        plt.subplot(3, 4, plot_number)
+        plt.imshow(found_lines, cmap = 'gray')
+        plt.title('All lines')
 
-    plot_number += 1
-    plt.subplot(3, 4, plot_number)
-    plt.imshow(warped, cmap = 'gray')
-    plt.title('Warped')
+    if interesting_lines is not None:
+        plot_number += 1
+        plt.subplot(3, 4, plot_number)
+        plt.imshow(interesting_lines, cmap = 'gray')
+        plt.title('Interesting lines')
 
-    plot_number += 1
-    plt.subplot(3, 4, plot_number)
-    plt.imshow(warped_edges, cmap = 'gray')
-    plt.title('Warped edges')
+    if img_target_points is not None:
+        plot_number += 1
+        plt.subplot(3, 4, plot_number)
+        plt.imshow(img_target_points, cmap = 'gray')
+        plt.title('Target transformation points')
 
-    plot_number += 1
-    plt.subplot(3, 4, plot_number)
-    plt.imshow(lines, cmap = 'gray')
-    plt.title('Lines')
+    if warped is not None:
+        plot_number += 1
+        plt.subplot(3, 4, plot_number)
+        plt.imshow(warped, cmap = 'gray')
+        plt.title('Warped')
 
-    plot_number += 1
-    plt.subplot(3, 4, plot_number)
-    plt.imshow(columns, cmap = 'gray')
-    plt.title('Columns')
+    if warped_edges is not None:
+        plot_number += 1
+        plt.subplot(3, 4, plot_number)
+        plt.imshow(warped_edges, cmap = 'gray')
+        plt.title('Warped edges')
 
-    plot_number += 1
-    plt.subplot(3, 4, plot_number)
-    plt.imshow(img_grid, cmap = 'gray')
-    plt.title('Detected {} lines, {} rows of {}px x {}px'.
-              format(len(grid.all_y), len(grid.all_x),
-                     grid.xstep, grid.ystep)),
+    if lines is not None:
+        plot_number += 1
+        plt.subplot(3, 4, plot_number)
+        plt.imshow(lines, cmap = 'gray')
+        plt.title('Lines')
 
-    plot_number += 1
-    plt.subplot(3, 4, plot_number)
-    plt.imshow(img_grid_flat, cmap = 'gray')
-    plt.title('Reconstitution')
+    if columns is not None:
+        plot_number += 1
+        plt.subplot(3, 4, plot_number)
+        plt.imshow(columns, cmap = 'gray')
+        plt.title('Columns')
+
+    if img_grid is not None:
+        plot_number += 1
+        plt.subplot(3, 4, plot_number)
+        plt.imshow(img_grid, cmap = 'gray')
+        plt.title('Detected {} lines, {} rows of {}px x {}px'.
+                  format(len(grid.all_y), len(grid.all_x),
+                         grid.xstep, grid.ystep)),
+
+    if img_grid_flat is not None:
+        plot_number += 1
+        plt.subplot(3, 4, plot_number)
+        plt.imshow(img_grid_flat, cmap = 'gray')
+        plt.title('Reconstitution')
 
     plt.show()
 
@@ -278,6 +298,8 @@ def find_farest_lines(lines):
         else:
             bucket_b.append(line)
     # Possible enhancment: get the two longest from each buckets
+    if len(bucket_a) <= 2 or len(bucket_b) <= 2:
+        return None
     return bucket_a[0], bucket_a[1], bucket_b[0], bucket_b[1]
 
 
@@ -290,7 +312,7 @@ def line_intersection(line1, line2):
 
     div = det(xdiff, ydiff)
     if div == 0:
-        raise Exception('lines do not intersect')
+        return None  # Lines do not intersect
 
     d = (det(*line1), det(*line2))
     x = det(d, xdiff) / div
@@ -339,35 +361,70 @@ def main():
     # experiment_using_chessboarddetect(args)
     img = cv2.imread(args.file)
     edges = cv2.Canny(img, 100, 200)  # try 66, 133, 3 ?
-    cdst = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-    lines = cv2.HoughLinesP(edges, 1, math.pi / 180.0, 40, np.array([]),
-                            minLineLength=200, maxLineGap=10)
-    best_lines = find_farest_lines(lines)
-    points = [line_intersection(((x1, x2), (y1, y2)), ((X1, X2), (Y1, Y2))) for
-              (x1, x2, y1, y2), (X1, X2, Y1, Y2) in itertools.combinations(best_lines, 2)]
-    points = [point for point in points if point[0] > 0 and point[1] > 0]
-    for x1, y1, x2, y2 in best_lines:
-        cv2.line(cdst, (x1, y1), (x2, y2), (0, 0, 255), 3, cv2.LINE_AA)
-    for point in points:
-        cv2.circle(cdst, (int(point[0]), int(point[1])), 10, (255, 0, 0), 3)
-    quad_pts = np.array([(img.shape[1] / 4, img.shape[0] / 4),
-                         (img.shape[1] * 3 / 4, img.shape[0] / 4),
-                         (img.shape[1] * 3 / 4, img.shape[0] * 3 / 4),
-                         (img.shape[1] / 4, img.shape[0] * 3 / 4)], np.float32)
-    points = sort_points(*points)
-    trans = cv2.getPerspectiveTransform(np.array(points, np.float32), quad_pts)
-    warped = cv2.warpPerspective(img, trans, (img.shape[1], img.shape[0]))
-    warped_edges = cv2.Canny(warped, 100, 200)  # try 66, 133, 3 ?
-    grid = Grid(warped_edges, debug=args.debug)
+    min_line_length=200
+    lines = None
+    while lines is None and min_line_length > 2:
+        lines = cv2.HoughLinesP(edges, 1, math.pi / 180.0, 40, np.array([]),
+                                minLineLength=min_line_length, maxLineGap=10)
+        if lines is not None:
+            if find_farest_lines(lines) is None:
+                lines = None
+        min_line_length /= 2
+    warped = grid = warped_edges = img_interesting_lines = None
+    if lines is not None:
+        found_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+        for x1, y1, x2, y2 in [(lines[i][0][0], lines[i][0][1], lines[i][0][2], lines[i][0][3]) for i in range(lines.shape[0])]:
+            cv2.line(found_lines, (x1, y1), (x2, y2), (0, 0, 255), 3, cv2.LINE_AA)
+        best_lines = find_farest_lines(lines)
+        if best_lines is not None:
+            img_interesting_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+            img_target_points = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+            points = [line_intersection(((x1, x2), (y1, y2)), ((X1, X2), (Y1, Y2))) for
+                      (x1, x2, y1, y2), (X1, X2, Y1, Y2) in itertools.combinations(best_lines, 2)]
+            points = [point for point in points if point is not None and point[0] > 0 and point[1] > 0]
+            for x1, y1, x2, y2 in best_lines:
+                cv2.line(img_interesting_lines, (x1, y1), (x2, y2), (0, 0, 255), 3, cv2.LINE_AA)
+            for point in points:
+                cv2.circle(img_interesting_lines, (int(point[0]), int(point[1])), 2, (255, 0, 0), 3)
+            #  Build quad_pts as a sqare of almost the same size than the 4 points.
+            #  For this, keep the 4 points as is, then:
+            #  - set top_left and top_right x to avg(top_left.x, top_right.x)
+            #  - ...
+            # quad_pts = np.array([(img.shape[1] / 4, img.shape[0] / 4),
+            #                      (img.shape[1] * 3 / 4, img.shape[0] / 4),
+            #                      (img.shape[1] * 3 / 4, img.shape[0] * 3 / 4),
+            #                      (img.shape[1] / 4, img.shape[0] * 3 / 4)], np.float32)
+            points = sort_points(*points)
+            width = np.linalg.norm(np.array(points[0], np.float32) - np.array(points[1], np.float32))
+            height = np.linalg.norm(np.array(points[1], np.float32) - np.array(points[2], np.float32))
+            # quad_pts = np.array([((points[0][0] + points[3][0]) / 2, (points[0][1] + points[1][1]) / 2),
+            #                      ((points[1][0] + points[2][0]) / 2, (points[1][1] + points[0][1]) / 2),
+            #                      ((points[2][0] + points[1][0]) / 2, (points[2][1] + points[3][1]) / 2),
+            #                      ((points[3][0] + points[0][0]) / 2, (points[3][1] + points[2][1]) / 2)], np.float32)
+            quad_pts = np.array([points[0],
+                                 (points[0][0] + width, points[0][1]),
+                                 (points[0][0] + width, points[0][1] + height),
+                                 (points[0][0], points[0][1] + height)], np.float32)
+            for point in quad_pts:
+                cv2.circle(img_target_points, (int(point[0]), int(point[1])), 2, (255, 0, 0), 3)
+
+            trans = cv2.getPerspectiveTransform(np.array(points, np.float32), quad_pts)
+            warped = cv2.warpPerspective(img, trans, (img.shape[1], img.shape[0]))
+            warped_edges = cv2.Canny(warped, 100, 200)  # try 66, 133, 3 ?
+            grid = Grid(warped_edges, debug=args.debug)
 
     if args.debug:
-        img_grid = warped.copy()
-        grid.draw(img_grid, (255, 255, 255))
-        img_grid_flat = img_grid.copy()
-        for x, y, width, height in grid.all_cells():
-            mean_color = cv2.mean(warped[x:x + width, y:y + height])[:3]
-            img_grid_flat[x:x + width, y:y + height] = mean_color
-        show_debug(img, grid, grid.lines, grid.columns, edges, warped, warped_edges, cdst, img_grid, img_grid_flat)
+        if warped is not None:
+            img_grid = warped.copy()
+            grid.draw(img_grid, (255, 255, 255))
+            img_grid_flat = img_grid.copy()
+            for x, y, width, height in grid.all_cells():
+                mean_color = cv2.mean(warped[x:x + width, y:y + height])[:3]
+                img_grid_flat[x:x + width, y:y + height] = mean_color
+        if grid is not None:
+            show_debug(img, edges, found_lines, img_target_points, warped, warped_edges, grid, grid.lines, grid.columns, img_interesting_lines, img_grid, img_grid_flat)
+        else:
+            show_debug(img, edges, found_lines, img_target_points, warped, warped_edges)
     if args.term:
         def print_color(*args, **kwargs):
             """
