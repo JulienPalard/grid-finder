@@ -1,92 +1,135 @@
 #!/usr/bin/env python3
 
+"""Try to find a grid (or a chessboard) in the given image.
+"""
+
 import cv2
+import sys
 import math
 import itertools
 import numpy as np
+from numpy.linalg import norm
+
+class GridFinderException(Exception):
+    """Exception thrown by GridFinder when somethings wrong"""
+    pass
 
 
-def show_debug(img, edges, found_lines, img_target_points, warped, warped_edges, grid, lines=None,
-               columns=None,
-               interesting_lines=None, img_grid=None, img_grid_flat=None):
+def show_debug(img, edges, lines, best_lines, points=None,
+               warped=None, warped_edges=None, grid=None):
     from matplotlib import pyplot as plt
+    interesting_lines = draw_interesting_lines(edges, best_lines,
+                                               points)
+    if points is not None:
+        top_left, top_right, bottom_right, bottom_left = points
+        width = norm(np.array(top_left, np.float32) -
+                     np.array(top_right, np.float32))
+        height = norm(np.array(top_right, np.float32) -
+                      np.array(bottom_right, np.float32))
+        quad_pts = np.array([top_left,
+                             (top_left[0] + width, top_left[1]),
+                             (top_left[0] + width, top_left[1] + height),
+                             (top_left[0], top_left[1] + height)], np.float32)
+        img_target_points = draw_target_points(edges, quad_pts)
+    else:
+        img_target_points = None
+    found_lines = draw_lines(edges, lines)
+    if warped is not None:
+        img_grid = warped.copy()
+        grid.draw(img_grid, (255, 255, 255))
+        img_grid_flat = img_grid.copy()
+        for x, y, width, height in grid.all_cells():
+            mean_color = cv2.mean(warped[x:x + width, y:y + height])[:3]
+            img_grid_flat[x:x + width, y:y + height] = mean_color
+    else:
+        img_grid = img_grid_flat = None
     plot_number = 0
 
     plot_number += 1
     plt.subplot(3, 4, plot_number)
-    plt.imshow(img, cmap = 'gray')
+    plt.imshow(img, cmap='gray')
     plt.title('Original Image')
 
     plot_number += 1
     plt.subplot(3, 4, plot_number)
-    plt.imshow(edges, cmap = 'gray')
+    plt.imshow(edges, cmap='gray')
     plt.title('Edge Image')
 
     if found_lines is not None:
         plot_number += 1
         plt.subplot(3, 4, plot_number)
-        plt.imshow(found_lines, cmap = 'gray')
+        plt.imshow(found_lines, cmap='gray')
         plt.title('All lines')
 
     if interesting_lines is not None:
         plot_number += 1
         plt.subplot(3, 4, plot_number)
-        plt.imshow(interesting_lines, cmap = 'gray')
+        plt.imshow(interesting_lines, cmap='gray')
         plt.title('Interesting lines')
 
     if img_target_points is not None:
         plot_number += 1
         plt.subplot(3, 4, plot_number)
-        plt.imshow(img_target_points, cmap = 'gray')
+        plt.imshow(img_target_points, cmap='gray')
         plt.title('Target transformation points')
 
     if warped is not None:
         plot_number += 1
         plt.subplot(3, 4, plot_number)
-        plt.imshow(warped, cmap = 'gray')
+        plt.imshow(warped, cmap='gray')
         plt.title('Warped')
 
     if warped_edges is not None:
         plot_number += 1
         plt.subplot(3, 4, plot_number)
-        plt.imshow(warped_edges, cmap = 'gray')
+        plt.imshow(warped_edges, cmap='gray')
         plt.title('Warped edges')
 
-    if lines is not None:
+    if grid is not None:
         plot_number += 1
         plt.subplot(3, 4, plot_number)
-        plt.imshow(lines, cmap = 'gray')
+        plt.imshow(grid.lines, cmap='gray')
         plt.title('Lines')
 
-    if columns is not None:
+    if grid is not None:
         plot_number += 1
         plt.subplot(3, 4, plot_number)
-        plt.imshow(columns, cmap = 'gray')
+        plt.imshow(grid.columns, cmap='gray')
         plt.title('Columns')
 
     if img_grid is not None:
         plot_number += 1
         plt.subplot(3, 4, plot_number)
-        plt.imshow(img_grid, cmap = 'gray')
-        plt.title('Detected {} lines, {} rows of {}px x {}px'.
-                  format(len(grid.all_y), len(grid.all_x),
-                         grid.xstep, grid.ystep)),
+        plt.imshow(img_grid, cmap='gray')
+        plt.title('Detected {} lines, {} rows of {}px x {}px'.format(
+            len(grid.all_y), len(grid.all_x),
+            grid.xstep, grid.ystep))
 
     if img_grid_flat is not None:
         plot_number += 1
         plt.subplot(3, 4, plot_number)
-        plt.imshow(img_grid_flat, cmap = 'gray')
+        plt.imshow(img_grid_flat, cmap='gray')
         plt.title('Reconstitution')
 
     plt.show()
 
 
-def mean(x):
-    return sum(x) / len(x)
+def mean(list_of_numbers):
+    """Mean value of value in the given list.
+
+    >>> mean([1, 2, 3])
+    2.0
+    >>> mean([])
+    Traceback (most recent call last):
+        ...
+    ZeroDivisionError: division by zero
+
+    """
+    return sum(list_of_numbers) / len(list_of_numbers)
 
 
 class Grid(object):
-    def __init__(self, edges, debug=False):
+    def __init__(self, edges):
         """
         Given the result of a cv2.Canny, find
         a grid in the given image.
@@ -108,10 +151,10 @@ class Grid(object):
 
         min_x_step = int(edges.shape[0] / 50)
         min_y_step = int(edges.shape[1] / 50)
-        self.x, self.xstep = self.find_step(np.sum(lines, axis=1), min_x_step,
-                                            debug=debug, debug_title="Lines")
-        self.y, self.ystep = self.find_step(np.sum(columns, axis=0), min_y_step,
-                                            debug=debug, debug_title="Columns")
+        self.x, self.xstep = self.find_step(np.sum(lines, axis=1),
+                                            min_x_step)
+        self.y, self.ystep = self.find_step(np.sum(columns, axis=0),
+                                            min_y_step)
         self.x = self.x % self.xstep  # Push back first point to the left
         self.y = self.y % self.ystep  # idem top the top
         self.shape = edges.shape
@@ -143,7 +186,6 @@ class Grid(object):
                                     array[x][y + 2])
         return out
 
-
     @staticmethod
     def keep_cols(array):
         """
@@ -161,10 +203,9 @@ class Grid(object):
                                     array[x + 2][y])
         return out
 
-
     @staticmethod
-    def find_step(positions, min_step=4, debug_title="Lines", debug=False):
-        """
+    def find_step(positions, min_step=4):
+        r"""
         For positions, a numpy array of values, returns a
         (start, step) tuple, of the most evident repetitive pattern
         in the input.
@@ -181,18 +222,14 @@ class Grid(object):
         """
         positions = positions - mean(positions)
         positions = np.convolve(positions, (1 / 3, 2 / 3, 1 / 3))
-        # if debug:
-        #     with Plotting() as plt:
-        #         plt.plot(positions)
-        #         plt.title(debug_title)
         best = (0, 0, 0)
-        for start, step, value in [(start, step, sum(positions[start::step]))
-                                   for step in range(min_step, int(len(positions) / 2))
-                                   for start in range(int(len(positions) / 2))]:
+        for start, step, value in [
+                (start, step, sum(positions[start::step]))
+                for step in range(min_step, int(len(positions) / 2))
+                for start in range(int(len(positions) / 2))]:
             if value > best[2]:
                 best = start, step, value
         return best[0], best[1]
-
 
     def cells_line_by_line(self):
         """
@@ -201,7 +238,7 @@ class Grid(object):
          [(x, y), (x, y), ...]
          ... ]
         """
-        for x, width in self.all_x:
+        for x, _ in self.all_x:
             yield [(x, y) for y, height in self.all_y]
 
     def all_cells(self):
@@ -213,6 +250,8 @@ class Grid(object):
                 yield (x, y, width, height)
 
     def draw(self, image, color=(255, 0, 0), thickness=2):
+        """Draw the current grid
+        """
         for x, width in self.all_x:
             for y, height in self.all_y:
                 cv2.rectangle(image, (y, x), (y + height, x + width),
@@ -223,87 +262,90 @@ class Grid(object):
             self.y, self.x, self.xstep, self.xstep)
 
 
-def splitfn(fn):
-    import os
-    path, fn = os.path.split(fn)
-    name, ext = os.path.splitext(fn)
-    return path, name, ext
+def angle_between(line_a, line_b):
+    """Compute the angle difference in rad between line_a and line_b.
+    line_a and line_b as tuples of x1, y1, x2, y2:
 
+    >>> angle_between((0, 0, 10, 0), (0, 0, 0, 10))
+    1.5707963267948966
 
-def experiment_using_chessboarddetect(args):
-    img = cv2.imread(args.file)
-    # img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # http://docs.opencv.org/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html#cv2.findChessboardCorners
-    pattern_size = (3, 3)
-    found, corners = cv2.findChessboardCorners(img, pattern_size, 1)  # cv2.CV_CALIB_CB_ADAPTIVE_THRESH)
-    if found:
-        term = ( cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_COUNT, 30, 0.1 )
-        cv2.cornerSubPix(img, corners, (5, 5), (-1, -1), term)
-    # vis = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    # cv2.drawChessboardCorners(vis, pattern_size, corners, found)
-    # path, name, ext = splitfn(args.file)
-    # cv2.imwrite('%s/%s_chess.bmp' % ('.', name), vis)
-    if not found:
-        print('chessboard not found')
-        return
-    img_points = []
-    obj_points = []
-    pattern_points = np.zeros( (np.prod(pattern_size), 3), np.float32 )
-    pattern_points[:,:2] = np.indices(pattern_size).T.reshape(-1, 2)
-    square_size = 1.0
-    pattern_points *= square_size
+    >>> angle_between((0, 0, 0, 10), (0, 0, 10, 0))
+    1.5707963267948966
 
-    img_points.append(corners.reshape(-1, 2))
-    obj_points.append(pattern_points)
-    h, w = img.shape[:2]
-    rms, camera_matrix, dist_coefs, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, (w, h), None, None)
-    print("RMS:", rms)
-    print("camera matrix:\n", camera_matrix)
-    print("distortion coefficients: ", dist_coefs.ravel())
+    >>> angle_between((0, 0, 0, 10), (0, 0, 10, 10))
+    0.7853981633974483
 
-    return
+    >>> angle_between((0, 0, 0, 10), (0, 0, 0, 20))
+    0.0
 
+    >>> angle_between((0, 0, 10, 0), (0, 0, -10, 0))
+    0.0
 
-def angle_distance(a, b):
-    a = abs(math.atan2(a[3] - a[1], a[2] - a[0]) - math.atan2(b[3] - b[1], b[2] - b[0])) % (math.pi * 2)
-    return math.pi * 2 - a if a > math.pi else a
+    >>> angle_between((0, 1, 0, 0), (1, 0, 1, 1))
+    0.0
 
+    >>> angle_between((0, 0, 1, 0), (0, 0, 1, 1))
+    0.7853981633974483
 
-def find_farest_lines(lines):
+    >>> angle_between((0, 1, 0, 0), (0, 0, 1, 1))
+    0.7853981633974483
+
     """
-    We should sort lines in two buckest: horizontals and verticals first
-    then get the extrems of both buckets. We use this by computing the angle of
-    each segment, then cluster them in two buckets using the following
-    algorithm:
+    distance = (abs(math.atan2(line_a[3] - line_a[1],
+                               line_a[2] - line_a[0]) -
+                    math.atan2(line_b[3] - line_b[1],
+                               line_b[2] - line_b[0])) %
+                (math.pi * 2))
+    angle = distance - math.pi if distance >= math.pi / 2 else distance
+    return abs(angle)
 
-    Find two opposites values, then put every remaining value to the nearest
-    bucket. But we're in a circular notation (radians) there is no notion of
-    "opposite values".
 
-    Another algorithm should be to compute the average distance (in radians) between
-    each pairs, use this
+def find_most_distant_lines(lines):
+    """For a given set of lines as given by HoughLinesP, find four lines,
+    such as the two first lines are "as perpendicular as possible" to
+    the two second lines, therefore, forming a kind of rectangle.
+
+    Returns a tuple of those four lines.
+    >>> find_most_distant_lines([[[0, 1, 0, 0]],
+    ...                          [[0, 0, 1, 0]],
+    ...                          [[1, 0, 1, 1]],
+    ...                          [[1, 1, 0, 1]],
+    ...                          [[0, 0, 1, 1]]])
+    ([0, 1, 0, 0], [1, 0, 1, 1], [0, 0, 1, 0], [1, 1, 0, 1])
     """
-    a, b, c = lines.shape
-    all_lines = [(lines[i][0][0], lines[i][0][1], lines[i][0][2], lines[i][0][3]) for i in range(lines.shape[0])]
-    farest = sorted([(id1, id2, angle_distance(line1, line2)) for
-                     ((id1, line1), (id2, line2)) in
-                     itertools.combinations(enumerate(all_lines), 2)],
-                    key=lambda x: x[2])[-1]
-    bucket_a_center, bucket_b_center = all_lines[farest[0]], all_lines[farest[1]]
+    by_angle = sorted(
+        [(line_a[0], line_b[0], angle_between(line_a[0], line_b[0])) for
+         line_a, line_b in
+         itertools.combinations(lines, 2)],
+        key=lambda x: x[2],
+        reverse=True)
+    bucket_a_center = by_angle[0][0]
     bucket_a = []
     bucket_b = []
-    for line in all_lines:
-        if angle_distance(line, bucket_a_center) < angle_distance(line, bucket_b_center):
-            bucket_a.append(line)
+    for line in lines:
+        angle = angle_between(line[0], bucket_a_center)
+        if angle < math.pi / 4:
+            bucket_a.append((angle, line[0]))
         else:
-            bucket_b.append(line)
+            bucket_b.append((angle, line[0]))
     # Possible enhancment: get the two longest from each buckets
-    if len(bucket_a) <= 2 or len(bucket_b) <= 2:
-        return None
-    return bucket_a[0], bucket_a[1], bucket_b[0], bucket_b[1]
+    if len(bucket_a) < 2 or len(bucket_b) < 2:
+        raise GridFinderException("Not enough lines to find a grid.")
+    bucket_a = sorted(bucket_a, key=lambda a: line_length(a[1]))
+    bucket_b = sorted(bucket_b, key=lambda a: line_length(a[1]))
+    return bucket_a[0][1], bucket_a[1][1], bucket_b[0][1], bucket_b[1][1]
 
 
 def line_intersection(line1, line2):
+    """Find the intersection point between two given lines.
+    Lines given as typle of points: ((x1, y1), (x2, y2)).
+
+    >>> line_intersection(((-10, 10), (10, -10)), ((-10, -10), (10, 10)))
+    (0.0, 0.0)
+
+    >>> line_intersection(((-10, 0), (10, 0)), ((0, -10), (0, 10)))
+    (0.0, 0.0)
+    """
     xdiff = (line1[0][0] - line1[1][0], line2[0][0] - line2[1][0])
     ydiff = (line1[0][1] - line1[1][1], line2[0][1] - line2[1][1])
 
@@ -320,20 +362,14 @@ def line_intersection(line1, line2):
     return x, y
 
 
-def sort_points(a, b, c, d):
-    """Sort 4 points returning them in this order:
+def sort_points(points):
+    """Sort points returning them in this order:
     top-left, top-right, bottom-right, bottom-left.
     Each poins is given as an (x, y) tuple.
     """
-    center = (sum(x[0] for x in (a, b, c, d)) / 4,
-              sum(x[1] for x in (a, b, c, d)) / 4)
-    top = []
-    bottom = []
-    for point in a, b, c, d:
-        if point[1] < center[1]:
-            top.append(point)
-        else:
-            bottom.append(point)
+    from_top_to_bottom = sorted(points, key=lambda x: x[1])
+    top = from_top_to_bottom[:2]
+    bottom = from_top_to_bottom[2:]
     top_left = top[1] if top[0][0] > top[1][0] else top[0]
     top_right = top[0] if top[0][0] > top[1][0] else top[1]
     bottom_left = bottom[1] if bottom[0][0] > bottom[1][0] else bottom[0]
@@ -341,12 +377,14 @@ def sort_points(a, b, c, d):
     return top_left, top_right, bottom_right, bottom_left
 
 
-def main():
+def parse_args():
+    """Return parsed arguments from command line"""
     from argparse import ArgumentParser
-    import sys
     parser = ArgumentParser(description='Grid finder')
     parser.add_argument('file', help='Input image')
-    parser.add_argument('--debug', help='Using matplotlib, display information '
+    parser.add_argument('--test', help='Run doctests', action='store_true')
+    parser.add_argument('--debug',
+                        help='Using matplotlib, display information '
                         'about each step of the process.',
                         action='store_true')
     parser.add_argument('--verbose', '-v',
@@ -357,125 +395,210 @@ def main():
     parser.add_argument('--term', help='Print the grid as colored brackets',
                         action='store_true')
     parser.add_argument('--imwrite', help='Write a clean image of the grid')
-    args = parser.parse_args()
-    # experiment_using_chessboarddetect(args)
-    img = cv2.imread(args.file)
-    edges = cv2.Canny(img, 100, 200)  # try 66, 133, 3 ?
-    min_line_length=200
-    lines = None
-    while lines is None and min_line_length > 2:
+    return parser.parse_args()
+
+
+def line_length(line):
+    """Mesure the given line as a (x1, y1, x2, y2) tuple.
+    >>> line_length((0, 0, 0, 1))
+    1.0
+    >>> line_length((0, 0, 1, 1))
+    1.4142135623730951
+    >>> line_length((1, 1, 0, 0))
+    1.4142135623730951
+    """
+    height = abs(line[1] - line[3])
+    width = abs(line[0] - line[2])
+    return math.sqrt(width ** 2 + height ** 2)
+
+
+def find_lines(edges, min_line_length=200):
+    """Find lines in Canny result, by using HoughLinesP.  Start with given
+    `min_line_length`, and divide this minimum by two
+    each time not enough lines are found to form a rectangle.
+
+    returns the np array given by HoughLinesP, of the form:
+    ```
+    [[[122 209 428 127]]
+     [[ 79 149 362  84]]
+     [[ 24  94 311  39]]]
+    ```
+    """
+    while min_line_length > 2:
         lines = cv2.HoughLinesP(edges, 1, math.pi / 180.0, 40, np.array([]),
                                 minLineLength=min_line_length, maxLineGap=10)
         if lines is not None:
-            if find_farest_lines(lines) is None:
-                lines = None
+            try:
+                find_most_distant_lines(lines)
+            except GridFinderException:
+                pass
+            else:
+                return lines
         min_line_length /= 2
-    warped = grid = warped_edges = img_interesting_lines = None
-    if lines is not None:
-        found_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-        for x1, y1, x2, y2 in [(lines[i][0][0], lines[i][0][1], lines[i][0][2], lines[i][0][3]) for i in range(lines.shape[0])]:
-            cv2.line(found_lines, (x1, y1), (x2, y2), (0, 0, 255), 3, cv2.LINE_AA)
-        best_lines = find_farest_lines(lines)
-        if best_lines is not None:
-            img_interesting_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-            img_target_points = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-            points = [line_intersection(((x1, x2), (y1, y2)), ((X1, X2), (Y1, Y2))) for
-                      (x1, x2, y1, y2), (X1, X2, Y1, Y2) in itertools.combinations(best_lines, 2)]
-            points = [point for point in points if point is not None and point[0] > 0 and point[1] > 0]
-            for x1, y1, x2, y2 in best_lines:
-                cv2.line(img_interesting_lines, (x1, y1), (x2, y2), (0, 0, 255), 3, cv2.LINE_AA)
-            for point in points:
-                cv2.circle(img_interesting_lines, (int(point[0]), int(point[1])), 2, (255, 0, 0), 3)
-            #  Build quad_pts as a sqare of almost the same size than the 4 points.
-            #  For this, keep the 4 points as is, then:
-            #  - set top_left and top_right x to avg(top_left.x, top_right.x)
-            #  - ...
-            # quad_pts = np.array([(img.shape[1] / 4, img.shape[0] / 4),
-            #                      (img.shape[1] * 3 / 4, img.shape[0] / 4),
-            #                      (img.shape[1] * 3 / 4, img.shape[0] * 3 / 4),
-            #                      (img.shape[1] / 4, img.shape[0] * 3 / 4)], np.float32)
-            points = sort_points(*points)
-            width = np.linalg.norm(np.array(points[0], np.float32) - np.array(points[1], np.float32))
-            height = np.linalg.norm(np.array(points[1], np.float32) - np.array(points[2], np.float32))
-            # quad_pts = np.array([((points[0][0] + points[3][0]) / 2, (points[0][1] + points[1][1]) / 2),
-            #                      ((points[1][0] + points[2][0]) / 2, (points[1][1] + points[0][1]) / 2),
-            #                      ((points[2][0] + points[1][0]) / 2, (points[2][1] + points[3][1]) / 2),
-            #                      ((points[3][0] + points[0][0]) / 2, (points[3][1] + points[2][1]) / 2)], np.float32)
-            quad_pts = np.array([points[0],
-                                 (points[0][0] + width, points[0][1]),
-                                 (points[0][0] + width, points[0][1] + height),
-                                 (points[0][0], points[0][1] + height)], np.float32)
-            for point in quad_pts:
-                cv2.circle(img_target_points, (int(point[0]), int(point[1])), 2, (255, 0, 0), 3)
+    raise GridFinderException("No lines found")
 
-            trans = cv2.getPerspectiveTransform(np.array(points, np.float32), quad_pts)
-            warped = cv2.warpPerspective(img, trans, (img.shape[1], img.shape[0]))
-            warped_edges = cv2.Canny(warped, 100, 200)  # try 66, 133, 3 ?
-            grid = Grid(warped_edges, debug=args.debug)
 
-    if args.debug:
-        if warped is not None:
-            img_grid = warped.copy()
-            grid.draw(img_grid, (255, 255, 255))
-            img_grid_flat = img_grid.copy()
-            for x, y, width, height in grid.all_cells():
-                mean_color = cv2.mean(warped[x:x + width, y:y + height])[:3]
-                img_grid_flat[x:x + width, y:y + height] = mean_color
-        if grid is not None:
-            show_debug(img, edges, found_lines, img_target_points, warped, warped_edges, grid, grid.lines, grid.columns, img_interesting_lines, img_grid, img_grid_flat)
-        else:
-            show_debug(img, edges, found_lines, img_target_points, warped, warped_edges)
+def draw_lines(edges, lines):
+    found_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    for x1, y1, x2, y2 in [(lines[i][0][0], lines[i][0][1], lines[i][0][2],
+                            lines[i][0][3]) for i in range(lines.shape[0])]:
+        cv2.line(found_lines, (x1, y1), (x2, y2), (0, 0, 255), 3, cv2.LINE_AA)
+    return found_lines
+
+
+def draw_interesting_lines(edges, lines, points=None):
+    img_interesting_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    for x1, y1, x2, y2 in lines:
+        cv2.line(img_interesting_lines, (x1, y1), (x2, y2), (0, 0, 255), 3,
+                 cv2.LINE_AA)
+    if points is not None:
+        for point in points:
+            cv2.circle(img_interesting_lines, (int(point[0]), int(point[1])),
+                       2, (255, 0, 0), 3)
+    return img_interesting_lines
+
+
+def warp_image(image, top_left, top_right, bottom_right, bottom_left):
+    width = np.linalg.norm(np.array(top_left, np.float32) -
+                           np.array(top_right, np.float32))
+    height = np.linalg.norm(np.array(top_right, np.float32) -
+                            np.array(bottom_right, np.float32))
+    quad_pts = np.array([top_left,
+                         (top_left[0] + width, top_left[1]),
+                         (top_left[0] + width, top_left[1] + height),
+                         (top_left[0], top_left[1] + height)], np.float32)
+    trans = cv2.getPerspectiveTransform(
+        np.array((top_left, top_right, bottom_right, bottom_left), np.float32),
+        quad_pts)
+    return cv2.warpPerspective(image, trans, (image.shape[1], image.shape[0]))
+
+
+def draw_target_points(edges, quad_pts):
+    img_target_points = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    for point in quad_pts:
+        cv2.circle(img_target_points, (int(point[0]), int(point[1])),
+                   2, (255, 0, 0), 3)
+    return img_target_points
+
+
+def print_grid_to_term(img, grid):
+    def print_color(*args, **kwargs):
+        """
+        Like print() but with extra `color` argument,
+        taking (red, green, blue) tuple. (0-255).
+        """
+        color = kwargs['color']
+        reduction = 255 / 5
+        del kwargs['color']
+        print('\x1b[38;5;%dm' % (16 + (int(color[0] / reduction) * 36) +
+                                 (int(color[1] / reduction) * 6) +
+                                 int(color[2] / reduction)), end='')
+        print(*args, **kwargs)
+        print('\x1b[0m', end='')
+
+    for line in grid.cells_line_by_line():
+        for cell in line:
+            x, y = cell[0], cell[1]
+            color = cv2.mean(img[x:x + grid.xstep, y:y + grid.ystep])
+            print_color('[]', color=(color[:3]), end='')
+        print()
+
+
+def print_grid_as_json(img, grid):
+    import json
+    lines = []
+    for line in grid.cells_line_by_line():
+        line = [(x, y, cv2.mean(img[x:x + grid.xstep,
+                                    y:y + grid.ystep]))
+                for x, y in line]
+        line = [{'x': cell[0],
+                 'y': cell[1],
+                 'color': (int(cell[2][0]),
+                           int(cell[2][1]),
+                           int(cell[2][2]))}
+                for cell in line]
+        lines.append(line)
+    print(json.dumps(lines, indent=4))
+    sys.exit(0)
+
+
+def write_grid_in_file(img, grid, imwrite):
+    img_flat = img.copy()
+    for x, y, width, height in grid.all_cells():
+        mean_color = cv2.mean(img[x:x + width, y:y + height])[:3]
+        img_flat[x:x + width, y:y + height] = mean_color
+    cv2.imwrite(imwrite, img_flat)
+
+
+def find_rectangle(best_lines):
+    """Given a list of lines, return a tuple of four points, ordered in
+    this order:
+     - top_left
+     - top_right
+     - bottom_right
+     - bottom_left
+
+    >>> tl, tr, br, bl = find_rectangle(((122, 209, 428, 127),
+    ...                                  (79, 149, 362, 84),
+    ...                                  (151, 78, 297, 219),
+    ...                                  (278, 56, 447, 174)))
+    >>> tl
+    (196.55904682849797, 121.99880549875489)
+    >>> tr
+    (328.96770995290564, 91.58692174226549)
+    >>> br
+    (393.08613857423046, 136.35600208141537)
+    >>> bl
+    (250.88330490946697, 174.46264378243043)
+    """
+    points = [line_intersection(((x1, x2), (y1, y2)), ((X1, X2), (Y1, Y2))) for
+              (x1, x2, y1, y2), (X1, X2, Y1, Y2) in
+              itertools.combinations(best_lines, 2)]
+    points = [point for point in points if
+              point is not None and point[0] > 0 and point[1] > 0]
+    return sort_points(points)
+
+
+def find_grid(filename, debug=False):
+    """Find a grid pattern in the given file.
+
+    Returns a tuple containing a flattened image so the found grid is
+    now a rectangle, and a `Grid` object representing the found grid.
+    """
+    img = cv2.imread(filename)
+    edges = cv2.Canny(img, 100, 200)  # try 66, 133, 3 ?
+    lines = find_lines(edges)
+    best_lines = find_most_distant_lines(lines)
+    top_left, top_right, bottom_right, bottom_left = find_rectangle(best_lines)
+    warped = warp_image(img, top_left, top_right, bottom_right, bottom_left)
+    warped_edges = cv2.Canny(warped, 100, 200)  # try 66, 133, 3 ?
+    grid = Grid(warped_edges)
+    if debug:
+        show_debug(img, edges, lines, best_lines,
+                   (top_left, top_right, bottom_right, bottom_left),
+                   warped, warped_edges, grid)
+    return warped, grid
+
+
+def _main():
+    """Run from command line, parsing command line arguments"""
+    args = parse_args()
+    if args.test:
+        import doctest
+        doctest.testmod()
+        exit(0)
+    img, grid = find_grid(args.file, args.debug)
     if args.term:
-        def print_color(*args, **kwargs):
-            """
-            Like print() but with extra `color` argument,
-            taking (red, green, blue) tuple. (0-255).
-            """
-            color = kwargs['color']
-            reduction = 255 / 5
-            del kwargs['color']
-            print('\x1b[38;5;%dm' % (16 + (int(color[0] / reduction) * 36) +
-                                     (int(color[1] / reduction) * 6) +
-                                     int(color[2] / reduction)), end='')
-            print(*args, **kwargs)
-            print('\x1b[0m', end='')
-
-        for line in grid.cells_line_by_line():
-            for cell in line:
-                x, y = cell[0], cell[1]
-                color = cv2.mean(img[x:x + grid.xstep, y:y + grid.ystep])
-                print_color('[]', color=(color[:3]), end='')
-            print()
+        print_grid_to_term(img, grid)
     if args.json:
-        import json
-        lines = []
-        for line in grid.cells_line_by_line():
-            line = [(x, y, cv2.mean(img[x:x + grid.xstep,
-                                        y:y + grid.ystep]))
-                    for x, y in line]
-            line = [{'x': cell[0],
-                     'y': cell[1],
-                     'color': (int(cell[2][0]),
-                               int(cell[2][1]),
-                               int(cell[2][2]))}
-                    for cell in line]
-            lines.append(line)
-        print(json.dumps(lines, indent=4))
-        sys.exit(0)
+        print_grid_as_json(img, grid)
     if args.imwrite:
-        img_flat = img.copy()
-        for x, y, width, height in grid.all_cells():
-            mean_color = cv2.mean(img[x:x + width, y:y + height])[:3]
-            img_flat[x:x + width, y:y + height] = mean_color
-        cv2.imwrite(args.imwrite, img_flat)
-
+        write_grid_in_file(img, grid, args.imwrite)
     if args.verbose:
         print('First column at:', grid.x)
         print('First row at:', grid.y)
         print('Column width:', grid.xstep)
         print('Row width:', grid.ystep)
-    sys.exit(0)
-    print(grid.x, grid.y, grid.xstep, grid.ystep)
 
 if __name__ == '__main__':
-    main()
+    _main()
