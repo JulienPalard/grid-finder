@@ -3,7 +3,6 @@
 """Try to find a grid (or a chessboard) in the given image.
 """
 
-import cv2
 import sys
 import math
 import itertools
@@ -17,6 +16,7 @@ class GridFinderException(Exception):
 
 def show_debug(img, edges, lines, best_lines, points=None,
                warped=None, warped_edges=None, grid=None):
+    import cv2
     from matplotlib import pyplot as plt
     interesting_lines = draw_interesting_lines(edges, best_lines,
                                                points)
@@ -146,6 +146,7 @@ class Grid(object):
         to draw the grid on a given image, usefull to check for correctness.
 
         """
+        import cv2
         self.lines = lines = self.keep_lines(edges)
         self.columns = columns = self.keep_cols(edges)
 
@@ -252,6 +253,7 @@ class Grid(object):
     def draw(self, image, color=(255, 0, 0), thickness=2):
         """Draw the current grid
         """
+        import cv2
         for x, width in self.all_x:
             for y, height in self.all_y:
                 cv2.rectangle(image, (y, x), (y + height, x + width),
@@ -263,19 +265,12 @@ class Grid(object):
 
 
 def angle_between(line_a, line_b):
-    """Compute the angle difference in rad between line_a and line_b.
-    line_a and line_b as tuples of x1, y1, x2, y2:
+    """Compute the angle between two lines, in rad,
+    line_a and line_b as tuples of x1, y1, x2, y2.
 
-    >>> angle_between((0, 0, 10, 0), (0, 0, 0, 10))
-    1.5707963267948966
+    Angle can only be in the range [0; π/2].
 
-    >>> angle_between((0, 0, 0, 10), (0, 0, 10, 0))
-    1.5707963267948966
-
-    >>> angle_between((0, 0, 0, 10), (0, 0, 10, 10))
-    0.7853981633974483
-
-    >>> angle_between((0, 0, 0, 10), (0, 0, 0, 20))
+    >>> angle_between((0, 0, 10, 0), (0, 0, 20, 0))
     0.0
 
     >>> angle_between((0, 0, 10, 0), (0, 0, -10, 0))
@@ -284,12 +279,28 @@ def angle_between(line_a, line_b):
     >>> angle_between((0, 1, 0, 0), (1, 0, 1, 1))
     0.0
 
-    >>> angle_between((0, 0, 1, 0), (0, 0, 1, 1))
+    >>> angle_between((0, 0, 10, 0), (0, 0, 0, 10))
+    1.5707963267948966
+
+    >>> angle_between((0, 0, 10, 0), (0, 0, 10, 10))
     0.7853981633974483
 
-    >>> angle_between((0, 1, 0, 0), (0, 0, 1, 1))
+    >>> angle_between((0, 0, 10, 0), (0, 0, 5, 10))
+    1.1071487177940904
+
+    >>> angle_between((0, 0, 10, 0), (0, 0, 10, 5))
+    0.4636476090008061
+
+    >>> angle_between((0, 0, 10, 0), (0, 0, 10, -10))
     0.7853981633974483
 
+    >>> angle_between((0, 0, 10, 0), (0, 0, -10, 10))
+    0.7853981633974483
+
+    >>> import itertools
+    >>> all(0 <= angle_between((0, 0, 0, 10), line_b) <= math.pi / 2 for
+    ...     line_b in (itertools.combinations_with_replacement((10, -10), 4)))
+    True
     """
     distance = (abs(math.atan2(line_a[3] - line_a[1],
                                line_a[2] - line_a[0]) -
@@ -306,34 +317,31 @@ def find_most_distant_lines(lines):
     the two second lines, therefore, forming a kind of rectangle.
 
     Returns a tuple of those four lines.
-    >>> find_most_distant_lines([[[0, 1, 0, 0]],
-    ...                          [[0, 0, 1, 0]],
-    ...                          [[1, 0, 1, 1]],
-    ...                          [[1, 1, 0, 1]],
-    ...                          [[0, 0, 1, 1]]])
-    ([0, 1, 0, 0], [1, 0, 1, 1], [0, 0, 1, 0], [1, 1, 0, 1])
+    >>> lines = find_most_distant_lines([[[0, 1, 0, 0]],
+    ...                                  [[0, 0, 1, 0]],
+    ...                                  [[1, 0, 1, 1]],
+    ...                                  [[1, 1, 0, 1]],
+    ...                                  [[0, 0, 1, 1]]])
+    >>> [0, 0, 1, 1] not in lines
+    True
     """
-    by_angle = sorted(
-        [(line_a[0], line_b[0], angle_between(line_a[0], line_b[0])) for
-         line_a, line_b in
-         itertools.combinations(lines, 2)],
-        key=lambda x: x[2],
-        reverse=True)
-    bucket_a_center = by_angle[0][0]
+    import sklearn.cluster
+    kmeans = sklearn.cluster.KMeans(n_clusters=2)
+    clusters = kmeans.fit_predict([[angle_between((0, 0, 0, 1), line[0])] for
+                                   line in lines])
     bucket_a = []
     bucket_b = []
-    for line in lines:
-        angle = angle_between(line[0], bucket_a_center)
-        if angle < math.pi / 4:
-            bucket_a.append((angle, line[0]))
+    for line_index, line in enumerate(lines):
+        if clusters[line_index] == 0:
+            bucket_a.append(line[0])
         else:
-            bucket_b.append((angle, line[0]))
+            bucket_b.append(line[0])
     # Possible enhancment: get the two longest from each buckets
     if len(bucket_a) < 2 or len(bucket_b) < 2:
         raise GridFinderException("Not enough lines to find a grid.")
-    bucket_a = sorted(bucket_a, key=lambda a: line_length(a[1]))
-    bucket_b = sorted(bucket_b, key=lambda a: line_length(a[1]))
-    return bucket_a[0][1], bucket_a[1][1], bucket_b[0][1], bucket_b[1][1]
+    bucket_a = sorted(bucket_a, key=line_length)
+    bucket_b = sorted(bucket_b, key=line_length)
+    return bucket_a[0], bucket_a[1], bucket_b[0], bucket_b[1]
 
 
 def line_intersection(line1, line2):
@@ -349,8 +357,8 @@ def line_intersection(line1, line2):
     xdiff = (line1[0][0] - line1[1][0], line2[0][0] - line2[1][0])
     ydiff = (line1[0][1] - line1[1][1], line2[0][1] - line2[1][1])
 
-    def det(a, b):
-        return a[0] * b[1] - a[1] * b[0]
+    def det(x, y):
+        return x[0] * y[1] - x[1] * y[0]
 
     div = det(xdiff, ydiff)
     if div == 0:
@@ -424,6 +432,7 @@ def find_lines(edges, min_line_length=200):
      [[ 24  94 311  39]]]
     ```
     """
+    import cv2
     while min_line_length > 2:
         lines = cv2.HoughLinesP(edges, 1, math.pi / 180.0, 40, np.array([]),
                                 minLineLength=min_line_length, maxLineGap=10)
@@ -439,6 +448,7 @@ def find_lines(edges, min_line_length=200):
 
 
 def draw_lines(edges, lines):
+    import cv2
     found_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
     for x1, y1, x2, y2 in [(lines[i][0][0], lines[i][0][1], lines[i][0][2],
                             lines[i][0][3]) for i in range(lines.shape[0])]:
@@ -447,6 +457,7 @@ def draw_lines(edges, lines):
 
 
 def draw_interesting_lines(edges, lines, points=None):
+    import cv2
     img_interesting_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
     for x1, y1, x2, y2 in lines:
         cv2.line(img_interesting_lines, (x1, y1), (x2, y2), (0, 0, 255), 3,
@@ -459,6 +470,7 @@ def draw_interesting_lines(edges, lines, points=None):
 
 
 def warp_image(image, top_left, top_right, bottom_right, bottom_left):
+    import cv2
     width = np.linalg.norm(np.array(top_left, np.float32) -
                            np.array(top_right, np.float32))
     height = np.linalg.norm(np.array(top_right, np.float32) -
@@ -474,6 +486,7 @@ def warp_image(image, top_left, top_right, bottom_right, bottom_left):
 
 
 def draw_target_points(edges, quad_pts):
+    import cv2
     img_target_points = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
     for point in quad_pts:
         cv2.circle(img_target_points, (int(point[0]), int(point[1])),
@@ -482,6 +495,7 @@ def draw_target_points(edges, quad_pts):
 
 
 def print_grid_to_term(img, grid):
+    import cv2
     def print_color(*args, **kwargs):
         """
         Like print() but with extra `color` argument,
@@ -492,7 +506,7 @@ def print_grid_to_term(img, grid):
         del kwargs['color']
         print('\x1b[38;5;%dm' % (16 + (int(color[0] / reduction) * 36) +
                                  (int(color[1] / reduction) * 6) +
-                                 int(color[2] / reduction)), end='')
+                                  int(color[2] / reduction)), end='')
         print(*args, **kwargs)
         print('\x1b[0m', end='')
 
@@ -505,6 +519,7 @@ def print_grid_to_term(img, grid):
 
 
 def print_grid_as_json(img, grid):
+    import cv2
     import json
     lines = []
     for line in grid.cells_line_by_line():
@@ -523,6 +538,7 @@ def print_grid_as_json(img, grid):
 
 
 def write_grid_in_file(img, grid, imwrite):
+    import cv2
     img_flat = img.copy()
     for x, y, width, height in grid.all_cells():
         mean_color = cv2.mean(img[x:x + width, y:y + height])[:3]
@@ -565,6 +581,7 @@ def find_grid(filename, debug=False):
     Returns a tuple containing a flattened image so the found grid is
     now a rectangle, and a `Grid` object representing the found grid.
     """
+    import cv2
     img = cv2.imread(filename)
     edges = cv2.Canny(img, 100, 200)  # try 66, 133, 3 ?
     lines = find_lines(edges)
