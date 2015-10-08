@@ -285,9 +285,11 @@ def find_orthogonal_lines(lines):
             bucket_b.append(line[0])
     if len(bucket_a) < 2 or len(bucket_b) < 2:
         raise GridFinderException("Not enough lines to find a grid.")
-    bucket_a = sorted(bucket_a, key=line_length, reverse=True)
-    bucket_b = sorted(bucket_b, key=line_length, reverse=True)
-    return bucket_a[0], bucket_a[1], bucket_b[0], bucket_b[1]
+    bucket_a = sorted(bucket_a, key=line_length, reverse=True)[:6]
+    bucket_b = sorted(bucket_b, key=line_length, reverse=True)[:6]
+    bucket_a = sorted(bucket_a, key=lambda x: x[0])
+    bucket_b = sorted(bucket_b, key=lambda x: x[2])
+    return bucket_a[0], bucket_a[-1], bucket_b[0], bucket_b[-1]
 
 
 def line_intersection(line1, line2):
