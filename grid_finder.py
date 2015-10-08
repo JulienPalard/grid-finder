@@ -258,13 +258,13 @@ def angle_between(line_a, line_b):
     return abs(angle)
 
 
-def find_most_distant_lines(lines):
+def find_orthogonal_lines(lines):
     """For a given set of lines as given by HoughLinesP, find four lines,
     such as the two first lines are "as perpendicular as possible" to
     the two second lines, therefore, forming a kind of rectangle.
 
     Returns a tuple of those four lines.
-    >>> lines = find_most_distant_lines([[[0, 1, 0, 0]],
+    >>> lines = find_orthogonal_lines([[[0, 1, 0, 0]],
     ...                                  [[0, 0, 1, 0]],
     ...                                  [[1, 0, 1, 1]],
     ...                                  [[1, 1, 0, 1]],
@@ -380,7 +380,7 @@ def find_lines(edges, min_line_length=200):
                                 minLineLength=min_line_length, maxLineGap=10)
         if lines is not None:
             try:
-                find_most_distant_lines(lines)
+                find_orthogonal_lines(lines)
             except GridFinderException:
                 pass
             else:
@@ -515,7 +515,7 @@ def find_grid(filename, debug=False):
     img = cv2.imread(filename)
     edges = cv2.Canny(img, 100, 200)  # try 66, 133, 3 ?
     lines = find_lines(edges)
-    best_lines = find_most_distant_lines(lines)
+    best_lines = find_orthogonal_lines(lines)
     top_left, top_right, bottom_right, bottom_left = find_rectangle(best_lines)
     warped = warp_image(img, top_left, top_right, bottom_right, bottom_left)
     warped_edges = cv2.Canny(warped, 100, 200)  # try 66, 133, 3 ?
