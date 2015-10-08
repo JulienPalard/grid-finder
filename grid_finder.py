@@ -110,20 +110,6 @@ def show_debug(img, edges, lines, best_lines, points=None,
         {"image": img_grid_flat, "title": 'Reconstitution', 'cmap': 'gray'}])
 
 
-def mean(list_of_numbers):
-    """Mean value of value in the given list.
-
-    >>> mean([1, 2, 3])
-    2.0
-    >>> mean([])
-    Traceback (most recent call last):
-        ...
-    ZeroDivisionError: division by zero
-
-    """
-    return sum(list_of_numbers) / len(list_of_numbers)
-
-
 class LinePattern(object):
     """Represents a repetitive line pattern, with `start` and `step`:
 
@@ -159,7 +145,7 @@ class LinePattern(object):
         the best match.
 
         """
-        positions = positions - mean(positions)
+        positions = positions - positions.mean()
         positions = np.convolve(positions, (1 / 3, 2 / 3, 1 / 3))
         best = (0, 0, 0)
         for start, step, value in [
