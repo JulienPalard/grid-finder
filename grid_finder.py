@@ -240,42 +240,14 @@ class Grid(object):
 
 
 def angle_between(line_a, line_b):
-    """Compute the angle between two lines, in rad,
-    line_a and line_b as tuples of x1, y1, x2, y2.
+    """Compute the angle between two lines, in radians, in [0; π/2] line_a
+    and line_b as tuples of x1, y1, x2, y2.
 
-    Angle can only be in the range [0; π/2].
-
-    >>> angle_between((0, 0, 10, 0), (0, 0, 20, 0))
-    0.0
-
-    >>> angle_between((0, 0, 10, 0), (0, 0, -10, 0))
-    0.0
-
-    >>> angle_between((0, 1, 0, 0), (1, 0, 1, 1))
-    0.0
+    Angle can only be in the range .
 
     >>> angle_between((0, 0, 10, 0), (0, 0, 0, 10))
     1.5707963267948966
 
-    >>> angle_between((0, 0, 10, 0), (0, 0, 10, 10))
-    0.7853981633974483
-
-    >>> angle_between((0, 0, 10, 0), (0, 0, 5, 10))
-    1.1071487177940904
-
-    >>> angle_between((0, 0, 10, 0), (0, 0, 10, 5))
-    0.4636476090008061
-
-    >>> angle_between((0, 0, 10, 0), (0, 0, 10, -10))
-    0.7853981633974483
-
-    >>> angle_between((0, 0, 10, 0), (0, 0, -10, 10))
-    0.7853981633974483
-
-    >>> import itertools
-    >>> all(0 <= angle_between((0, 0, 0, 10), line_b) <= math.pi / 2 for
-    ...     line_b in (itertools.combinations_with_replacement((10, -10), 4)))
-    True
     """
     distance = (abs(math.atan2(line_a[3] - line_a[1],
                                line_a[2] - line_a[0]) -
