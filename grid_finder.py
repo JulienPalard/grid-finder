@@ -17,11 +17,28 @@ class GridFinderException(Exception):
 
 
 class DebugUI(object):
+    """Build a debug user interface showing each step of the grid finding
+    process.
+    """
     def __init__(self):
         self.plot_number = 0
 
     @staticmethod
-    def draw_target_points(edges, quad_pts):
+    def draw_target_points(edges, points):
+        """Draw four circles where the image will be mapped after
+        transformation.
+        """
+        if points is None:
+            return None
+        top_left, top_right, bottom_right, _ = points
+        width = norm(np.array(top_left, np.float32) -
+                     np.array(top_right, np.float32))
+        height = norm(np.array(top_right, np.float32) -
+                      np.array(bottom_right, np.float32))
+        quad_pts = np.array([top_left,
+                             (top_left[0] + width, top_left[1]),
+                             (top_left[0] + width, top_left[1] + height),
+                             (top_left[0], top_left[1] + height)], np.float32)
         img_target_points = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
         for point in quad_pts:
             cv2.circle(img_target_points, (int(point[0]), int(point[1])),
@@ -30,6 +47,8 @@ class DebugUI(object):
 
     @staticmethod
     def draw_interesting_lines(edges, lines, points=None):
+        """Show the interesting lines found to find the grid.
+        """
         img_interesting_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
         for x1, y1, x2, y2 in lines:
             cv2.line(img_interesting_lines, (x1, y1), (x2, y2), (0, 0, 255), 3,
@@ -41,71 +60,45 @@ class DebugUI(object):
                            2, (255, 0, 0), 3)
         return img_interesting_lines
 
+    @staticmethod
+    def draw_grid(warped, grid):
+        """Draw the grid on top of the warped image.
+        """
+        if warped is None:
+            return None
+        img_grid = warped.copy()
+        grid.draw(img_grid, (255, 255, 255))
+        return img_grid
+
+    @staticmethod
+    def draw_flat_grid(warped, grid):
+        """Draw the grid, then compute mean color in each cells to "clean" it.
+        """
+        if warped is None:
+            return None
+        img_grid = warped.copy()
+        grid.draw(img_grid, (255, 255, 255))
+        for x, y, width, height in grid.all_cells():
+            img_grid[x:x + width, y:y + height] = cv2.mean(
+                warped[x:x + width, y:y + height])[:3]
+        return img_grid
+
     def show(self, image, title, **kwargs):
         """Consecutively draw image in a 3 × 4 grid.
         """
         if image is None:
             return
         self.plot_number += 1
-        plt.subplot(3, 4, self.plot_number)
+        plt.subplot(3, 5, self.plot_number)
         plt.imshow(image, **kwargs)
         plt.title(title)
 
     def show_all(self, images):
+        """Convenient function to call show for each item in a list.
+        """
         for image in images:
             self.show(**image)
         plt.show()
-
-
-def show_debug(img, edges, lines, best_lines, points=None,
-               warped=None, warped_edges=None, grid=None):
-    """Using matplotlib, show each step of the computation as an image on
-    a grid.
-    """
-    interesting_lines = DebugUI.draw_interesting_lines(edges, best_lines,
-                                                       points)
-    debug_ui = DebugUI()
-    if points is not None:
-        top_left, top_right, bottom_right, bottom_left = points
-        width = norm(np.array(top_left, np.float32) -
-                     np.array(top_right, np.float32))
-        height = norm(np.array(top_right, np.float32) -
-                      np.array(bottom_right, np.float32))
-        quad_pts = np.array([top_left,
-                             (top_left[0] + width, top_left[1]),
-                             (top_left[0] + width, top_left[1] + height),
-                             (top_left[0], top_left[1] + height)], np.float32)
-        img_target_points = DebugUI.draw_target_points(edges, quad_pts)
-    else:
-        img_target_points = None
-    found_lines = draw_lines(edges, lines)
-    if warped is not None:
-        img_grid = warped.copy()
-        grid.draw(img_grid, (255, 255, 255))
-        img_grid_flat = img_grid.copy()
-        for x, y, width, height in grid.all_cells():
-            mean_color = cv2.mean(warped[x:x + width, y:y + height])[:3]
-            img_grid_flat[x:x + width, y:y + height] = mean_color
-    else:
-        img_grid = img_grid_flat = None
-
-    debug_ui.show_all([
-        {"image": img, "title": 'Original image'},
-        {"image": edges, "title": 'Edge Image', 'cmap': 'gray'},
-        {"image": found_lines, "title": "All lines", 'cmap': 'gray'},
-        {"image": interesting_lines, "title": 'Interesting lines',
-         'cmap': 'gray'},
-        {"image": img_target_points, "title": 'Target transformation points',
-         'cmap': 'gray'},
-        {"image": warped, "title": 'Warped', 'cmap': 'gray'},
-        {"image": warped_edges, "title": 'Warped edges', 'cmap': 'gray'},
-        {"image": grid.lines, "title": 'Lines', 'cmap': 'gray'},
-        {"image": grid.columns, "title": 'Columns', 'cmap': 'gray'},
-        {"image": img_grid,
-         "title": 'Detected {} lines, {} rows of {}px x {}px'.format(
-             len(grid.all_y), len(grid.all_x),
-             grid.xpattern.step, grid.ypattern.step), 'cmap': 'gray'},
-        {"image": img_grid_flat, "title": 'Reconstitution', 'cmap': 'gray'}])
 
 
 class LinePattern(object):
@@ -556,9 +549,29 @@ def find_grid(filename, debug=False):
     warped_edges = cv2.Canny(warped, 100, 200)  # try 66, 133, 3 ?
     grid = Grid(warped_edges)
     if debug:
-        show_debug(img, edges, lines, best_lines,
-                   (top_left, top_right, bottom_right, bottom_left),
-                   warped, warped_edges, grid)
+        points = (top_left, top_right, bottom_right, bottom_left)
+        DebugUI().show_all([
+            {"image": img, "title": 'Original image'},
+            {"image": edges, "title": 'Edge Image', 'cmap': 'gray'},
+            {"image": draw_lines(edges, lines),
+             "title": "All lines", 'cmap': 'gray'},
+            {"image": DebugUI.draw_interesting_lines(edges, best_lines, points),
+             "title": 'Interesting lines',
+             'cmap': 'gray'},
+            {"image": DebugUI.draw_target_points(edges, points),
+             "title": 'Target transformation points',
+             'cmap': 'gray'},
+
+            {"image": warped, "title": 'Warped', 'cmap': 'gray'},
+            {"image": warped_edges, "title": 'Warped edges', 'cmap': 'gray'},
+            {"image": grid.lines, "title": 'Lines', 'cmap': 'gray'},
+            {"image": grid.columns, "title": 'Columns', 'cmap': 'gray'},
+            {"image": DebugUI.draw_grid(warped, grid),
+             "title": 'Detected {} lines, {} rows of {}px x {}px'.format(
+                 len(grid.all_y), len(grid.all_x),
+                 grid.xpattern.step, grid.ypattern.step), 'cmap': 'gray'},
+            {"image": DebugUI.draw_flat_grid(warped, grid),
+             "title": 'Reconstitution', 'cmap': 'gray'}])
     return warped, grid
 
 
