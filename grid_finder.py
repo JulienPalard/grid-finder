@@ -283,11 +283,10 @@ def find_orthogonal_lines(lines):
             bucket_a.append(line[0])
         else:
             bucket_b.append(line[0])
-    # Possible enhancment: get the two longest from each buckets
     if len(bucket_a) < 2 or len(bucket_b) < 2:
         raise GridFinderException("Not enough lines to find a grid.")
-    bucket_a = sorted(bucket_a, key=line_length)
-    bucket_b = sorted(bucket_b, key=line_length)
+    bucket_a = sorted(bucket_a, key=line_length, reverse=True)
+    bucket_b = sorted(bucket_b, key=line_length, reverse=True)
     return bucket_a[0], bucket_a[1], bucket_b[0], bucket_b[1]
 
 
