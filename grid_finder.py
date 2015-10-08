@@ -4,6 +4,7 @@
 """
 
 import sys
+import cv2
 import math
 import itertools
 import numpy as np
@@ -21,7 +22,6 @@ class DebugUI(object):
 
     @staticmethod
     def draw_target_points(edges, quad_pts):
-        import cv2
         img_target_points = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
         for point in quad_pts:
             cv2.circle(img_target_points, (int(point[0]), int(point[1])),
@@ -30,7 +30,6 @@ class DebugUI(object):
 
     @staticmethod
     def draw_interesting_lines(edges, lines, points=None):
-        import cv2
         img_interesting_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
         for x1, y1, x2, y2 in lines:
             cv2.line(img_interesting_lines, (x1, y1), (x2, y2), (0, 0, 255), 3,
@@ -63,7 +62,6 @@ def show_debug(img, edges, lines, best_lines, points=None,
     """Using matplotlib, show each step of the computation as an image on
     a grid.
     """
-    import cv2
     interesting_lines = DebugUI.draw_interesting_lines(edges, best_lines,
                                                        points)
     debug_ui = DebugUI()
@@ -237,7 +235,6 @@ class Grid(object):
     def draw(self, image, color=(255, 0, 0), thickness=2):
         """Draw the current grid
         """
-        import cv2
         for x, width in self.all_x:
             for y, height in self.all_y:
                 cv2.rectangle(image, (y, x), (y + height, x + width),
@@ -413,7 +410,6 @@ def find_lines(edges, min_line_length=200):
      [[ 24  94 311  39]]]
     ```
     """
-    import cv2
     while min_line_length > 2:
         lines = cv2.HoughLinesP(edges, 1, math.pi / 180.0, 40, np.array([]),
                                 minLineLength=min_line_length, maxLineGap=10)
@@ -434,7 +430,6 @@ def draw_lines(edges, lines):
     [[[x1, y1, x2, y2]],
      [[x1, y1, x2, y2]]]
     """
-    import cv2
     found_lines = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
     for start, end in [((lines[i][0][0], lines[i][0][1]),
                         (lines[i][0][2], lines[i][0][3])) for i in
@@ -446,7 +441,6 @@ def draw_lines(edges, lines):
 def warp_image(image, top_left, top_right, bottom_right, bottom_left):
     """Warp the given image into the given box coordinates.
     """
-    import cv2
     width = np.linalg.norm(np.array(top_left, np.float32) -
                            np.array(top_right, np.float32))
     height = np.linalg.norm(np.array(top_right, np.float32) -
@@ -464,7 +458,6 @@ def warp_image(image, top_left, top_right, bottom_right, bottom_left):
 def print_grid_to_term(img, grid):
     """Print the given grid, in ascii, using 256 colors, to the terminal.
     """
-    import cv2
     def print_color(*args, **kwargs):
         """
         Like print() but with extra `color` argument,
@@ -492,7 +485,6 @@ def print_grid_as_json(img, grid):
     """Export the given grid as a json file containing a list of cells as:
     {'x': ..., 'y': ..., 'color': ...}
     """
-    import cv2
     import json
     lines = []
     for line in grid.cells_line_by_line():
@@ -513,7 +505,6 @@ def print_grid_as_json(img, grid):
 def write_grid_in_file(img, grid, imwrite):
     """Write given grid as a new image in the given file.
     """
-    import cv2
     img_flat = img.copy()
     for x, y, width, height in grid.all_cells():
         mean_color = cv2.mean(img[x:x + width, y:y + height])[:3]
@@ -556,7 +547,6 @@ def find_grid(filename, debug=False):
     Returns a tuple containing a flattened image so the found grid is
     now a rectangle, and a `Grid` object representing the found grid.
     """
-    import cv2
     img = cv2.imread(filename)
     edges = cv2.Canny(img, 100, 200)  # try 66, 133, 3 ?
     lines = find_lines(edges)
